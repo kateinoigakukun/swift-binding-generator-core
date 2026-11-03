@@ -1,0 +1,1 @@
+# swift-binding-generator-core

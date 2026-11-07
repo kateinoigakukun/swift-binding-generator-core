@@ -58,7 +58,7 @@ jobs:
             echo "JAVA_HOME_25=$JAVA_HOME_25_ARM64" >> $GITHUB_ENV
           fi
       - name: Cache swift-java .build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         continue-on-error: true
         with:
           path: .downstream/swift-java/.build

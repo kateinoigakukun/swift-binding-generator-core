@@ -451,44 +451,44 @@ final class SwiftAnalysisVisitor {
       return
     }
 
-    guard let binding = node.bindings.first else {
-      return
-    }
+    for binding in node.bindings {
+      let varName = "\(binding.pattern.trimmed)"
 
-    let varName = "\(binding.pattern.trimmed)"
+      self.log.debug("Import variable: \(node.kind) '\(node.qualifiedNameForDebug)' binding '\(varName)'")
 
-    self.log.debug("Import variable: \(node.kind) '\(node.qualifiedNameForDebug)'")
-
-    do {
-      let supportedAccessors = node.supportedAccessorKinds(
-        binding: binding,
-        minimumAccessLevel: config.effectiveMinimumInputAccessLevelMode,
-      )
-      if supportedAccessors.contains(.get) {
-        try importAccessor(
-          from: DeclSyntax(node),
-          in: typeContext,
-          kind: .getter,
-          name: varName,
+      do {
+        let supportedAccessors = node.supportedAccessorKinds(
+          binding: binding,
+          minimumAccessLevel: config.effectiveMinimumInputAccessLevelMode,
+        )
+        if supportedAccessors.contains(.get) {
+          try importAccessor(
+            from: DeclSyntax(node),
+            binding: binding,
+            in: typeContext,
+            kind: .getter,
+            name: varName,
+            sourceFilePath: sourceFilePath,
+          )
+        }
+        if supportedAccessors.contains(.set) {
+          try importAccessor(
+            from: DeclSyntax(node),
+            binding: binding,
+            in: typeContext,
+            kind: .setter,
+            name: varName,
+            sourceFilePath: sourceFilePath,
+          )
+        }
+      } catch {
+        self.reportSkipped(
+          node,
+          name: "\(node.qualifiedNameForDebug)",
           sourceFilePath: sourceFilePath,
+          error: error
         )
       }
-      if supportedAccessors.contains(.set) {
-        try importAccessor(
-          from: DeclSyntax(node),
-          in: typeContext,
-          kind: .setter,
-          name: varName,
-          sourceFilePath: sourceFilePath,
-        )
-      }
-    } catch {
-      self.reportSkipped(
-        node,
-        name: "\(node.qualifiedNameForDebug)",
-        sourceFilePath: sourceFilePath,
-        error: error
-      )
     }
   }
 
@@ -606,6 +606,7 @@ final class SwiftAnalysisVisitor {
 
   private func importAccessor(
     from node: DeclSyntax,
+    binding: PatternBindingSyntax? = nil,
     in typeContext: ExtractedNominalType?,
     kind: SwiftAPIKind,
     name: String,
@@ -617,6 +618,7 @@ final class SwiftAnalysisVisitor {
     case .variableDecl(let varNode):
       signature = try SwiftFunctionSignature(
         varNode,
+        binding: binding,
         isSet: kind == .setter,
         enclosingType: typeContext?.swiftType,
         lookupContext: analyzer.lookupContext,

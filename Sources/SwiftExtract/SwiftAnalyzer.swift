@@ -422,7 +422,10 @@ extension SwiftAnalyzer {
   /// Resolve the type an extension extends, reporting *why* resolution ended where it did
   func resolveExtendedType(_ typeNode: TypeSyntax) -> ExtendedTypeResolution {
     guard let swiftType = try? SwiftType(typeNode, lookupContext: lookupContext),
-      let swiftNominalDecl = swiftType.asNominalTypeDeclaration
+      let swiftNominalDecl = swiftType.asNominalTypeDeclaration,
+      // With `allowUnresolvedTypeReferences`, an unknown name resolves to a
+      // synthetic placeholder; that's not another module's type.
+      !swiftNominalDecl.isUnresolvedTypePlaceholder
     else {
       return .unresolved
     }

@@ -1,0 +1,82 @@
+name: pull_request
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soundness:
+    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@main
+    with:
+      # Not API stable package (yet)
+      api_breakage_check_enabled: false
+      format_check_enabled: true
+      license_header_check_project_name: Swift.org
+      docs_check_enabled: false
+
+  test-swift:
+    name: Test (Swift) (${{ matrix.os_version }} swift:${{ matrix.swift_version }})
+    runs-on: ubuntu-latest
+    # Nightly builds are best-effort
+    continue-on-error: ${{ contains(matrix.swift_version, 'nightly') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift_version: ['6.1.3', '6.3', 'nightly']
+        os_version: ['noble']
+    container:
+      image: ${{ (contains(matrix.swift_version, 'nightly') && 'swiftlang/swift') || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare CI Environment
+        uses: ./.github/actions/prepare_env
+      - name: Cache .build
+        uses: ./.github/actions/cache_swiftpm_build
+        with:
+          path: .build
+          tag: test
+          swift-version: ${{ matrix.swift_version }}
+          os-version: ${{ matrix.os_version }}
+          hash-files: |
+            Package.swift
+            Package.resolved
+            Sources/**/*.swift
+            Plugins/**/*.swift
+            Tests/**/*.swift
+      - name: Swift Build
+        run: swift build --build-tests --disable-sandbox --disable-experimental-prebuilts  # FIXME: until prebuilt swift-syntax isn't broken on 6.2 anymore: https://github.com/swiftlang/swift-java/issues/418
+      - name: Swift Test
+        run: swift test --disable-experimental-prebuilts  # FIXME: until prebuilt swift-syntax isn't broken on 6.2 anymore: https://github.com/swiftlang/swift-java/issues/418
+
+  test-swift-macos:
+    name: Test (Swift) (${{ matrix.os_version }} swift:${{ matrix.swift_version }})
+    runs-on: [self-hosted, macos, tahoe, ARM64]
+    strategy:
+      fail-fast: false
+      matrix:
+        swift_version: ['6.3']
+        os_version: ['macos']
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare CI Environment
+        uses: ./.github/actions/prepare_env
+      - name: Install Swiftly
+        run: ./.github/scripts/install_swiftly.sh
+        env:
+          SWIFT_VERSION: "${{ matrix.swift_version }}"
+      - name: Swift Build
+        run: swift build --disable-sandbox
+      - name: Use Xcode Swift for tests
+        # Build plugins resolve `swift` through PATH, bypassing xcrun.
+        run: echo "$(dirname "$(xcrun --find swift)")" >> "$GITHUB_PATH"
+      - name: Swift Test (swift-testing)
+        run: xcrun swift test --disable-xctest
+      - name: Swift Test (XCTest)
+        run: xcrun swift test --disable-experimental-swift-testing

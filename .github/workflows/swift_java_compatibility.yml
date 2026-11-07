@@ -1,0 +1,70 @@
+name: swift-java_compatibility
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      swift-java-repository:
+        description: 'swift-java repository to test against (owner/repo or full URL)'
+        required: true
+        default: 'swiftlang/swift-java'
+      swift-java-ref:
+        description: 'swift-java branch, tag, or SHA to test against'
+        required: true
+        default: 'main'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-swift-java:
+    name: Test swift-java (${{ inputs.swift-java-ref || 'main' }}) against this package
+    runs-on: ubuntu-latest
+    # This job is informational: it must not block PRs, it exists so we
+    # notice source breaks in swift-java (our primary consumer) early.
+    continue-on-error: true
+    container:
+      image: swift:6.3-noble
+    env:
+      SWIFT_JAVA_REPOSITORY: ${{ inputs.swift-java-repository || 'swiftlang/swift-java' }}
+      SWIFT_JAVA_REF: ${{ inputs.swift-java-ref || 'main' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Swift version
+        run: swift -version
+      # swift-java needs a JDK in order to build (JNI headers, Java tools).
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'corretto'
+          java-version: |
+            25
+            17
+      - name: Set JAVA_HOME_{N}
+        run: |
+          if [[ -n "$JAVA_HOME_21_X64" ]]; then
+            echo "JAVA_HOME_21=$JAVA_HOME_21_X64" >> $GITHUB_ENV
+          elif [[ -n "$JAVA_HOME_21_ARM64" ]]; then
+            echo "JAVA_HOME_21=$JAVA_HOME_21_ARM64" >> $GITHUB_ENV
+          fi
+          if [[ -n "$JAVA_HOME_25_X64" ]]; then
+            echo "JAVA_HOME_25=$JAVA_HOME_25_X64" >> $GITHUB_ENV
+          elif [[ -n "$JAVA_HOME_25_ARM64" ]]; then
+            echo "JAVA_HOME_25=$JAVA_HOME_25_ARM64" >> $GITHUB_ENV
+          fi
+      - name: Cache swift-java .build
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: .downstream/swift-java/.build
+          key: ${{ runner.os }}-swift-java-compat-${{ env.SWIFT_JAVA_REF }}-build-${{ hashFiles('Package.swift', 'Sources/**/*.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-java-compat-${{ env.SWIFT_JAVA_REF }}-build-
+            ${{ runner.os }}-swift-java-compat-
+      - name: Build and test swift-java against this checkout
+        run: ./.github/scripts/test_swift_java.sh

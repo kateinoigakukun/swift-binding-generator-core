@@ -1,0 +1,27 @@
+.DS_Store
+.metals
+.build
+.idea
+.vscode
+Packages
+xcuserdata/
+DerivedData/
+.swiftpm
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+.index-build
+.build-vscode
+**/.vscode
+
+# Local downstream checkout used by the swift-java compatibility job
+.downstream/
+
+# Ignore package resolved
+Package.resolved
+
+*/**/*.d
+*/**/*.o
+*/**/*.swiftdeps
+*/**/*.swiftdeps~
+*/**/.docc-build/

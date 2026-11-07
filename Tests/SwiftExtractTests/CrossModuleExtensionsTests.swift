@@ -419,6 +419,41 @@ struct CrossModuleExtensionsSuite {
     #expect(diagnostic.underlyingError == nil)
   }
 
+  @Test
+  func unresolvableExtendedTypeIsRecordedSeparatelyWhenUnresolvedReferencesAreAllowed() throws {
+    let sink = CollectingDiagnosticsSink()
+    let result = try analyze(
+      sources: [
+        (
+          "/fake/Source.swift",
+          """
+          public protocol Labelable {}
+          extension SomeTypeThatDoesNotExist: Labelable {
+            public func label() -> String { "" }
+          }
+          """
+        )
+      ],
+      moduleName: "TestModule",
+      config: DefaultSwiftExtractConfiguration(
+        swiftModule: "TestModule",
+        allowUnresolvedTypeReferences: true
+      ),
+      diagnosticsSink: sink
+    )
+
+    // An unresolved-type placeholder is not another module's type: the
+    // extension must not be recorded as a cross-module extension.
+    #expect(result.crossModuleExtensions.all.isEmpty)
+    let unresolved = try #require(result.crossModuleExtensions.unresolved.first)
+    #expect(unresolved.extendedTypeDescription == "SomeTypeThatDoesNotExist")
+
+    let diagnostic = try #require(sink.diagnostics.first)
+    #expect(diagnostic.kind == .skippedDeclaration)
+    #expect(diagnostic.declarationName == "extension SomeTypeThatDoesNotExist")
+    #expect(diagnostic.node.is(ExtensionDeclSyntax.self))
+  }
+
   // ==== ----------------------------------------------------------------------
   // MARK: Transitive conformance query
 

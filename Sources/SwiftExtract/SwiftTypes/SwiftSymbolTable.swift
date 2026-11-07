@@ -57,6 +57,11 @@ public class SwiftSymbolTable {
   public let importedModules: [String: SwiftModuleSymbolTable]
   public let parsedModule: SwiftModuleSymbolTable
 
+  /// Modules described by a consumer-supplied symbol table rather than parsed
+  /// source, e.g. through a `SwiftExternalTypeProvider`. Consulted after
+  /// `importedModules`, and never for a module that `importedModules` has.
+  public let externalModules: [String: any SwiftSymbolTableProtocol]
+
   /// Module names within `importedModules` that are synthetic — they exist
   /// purely to drive type resolution and must NOT be emitted as
   /// `import <module>` statements in generated Swift code.
@@ -75,13 +80,20 @@ public class SwiftSymbolTable {
     })
   }
 
+  /// External modules in a stable lookup order.
+  private var sortedExternalModules: [any SwiftSymbolTableProtocol] {
+    externalModules.values.sorted { $0.moduleName < $1.moduleName }
+  }
+
   public init(
     parsedModule: SwiftModuleSymbolTable,
     importedModules: [String: SwiftModuleSymbolTable],
+    externalModules: [String: any SwiftSymbolTableProtocol] = [:],
     syntheticImportedModuleNames: Set<String> = []
   ) {
     self.parsedModule = parsedModule
     self.importedModules = importedModules
+    self.externalModules = externalModules
     self.syntheticImportedModuleNames = syntheticImportedModuleNames
   }
 
@@ -89,7 +101,7 @@ public class SwiftSymbolTable {
     if name == moduleName {
       return true
     }
-    return importedModules.keys.contains(name)
+    return importedModules.keys.contains(name) || externalModules.keys.contains(name)
   }
 }
 
@@ -100,6 +112,7 @@ extension SwiftSymbolTable {
     additionalInputFiles: [SwiftInputFile] = [],
     config: (any SwiftExtractConfiguration)?,
     sourceDependencies: SourceDependencies,
+    externalTypeProvider: (any SwiftExternalTypeProvider)? = nil,
     buildConfig: any BuildConfiguration = .swiftExtractDefault,
     log: Logger? = nil,
   ) -> SwiftSymbolTable {
@@ -180,11 +193,28 @@ extension SwiftSymbolTable {
       log?.debug("No importedModuleStubs in config")
     }
 
+    // Modules described by the consumer's external type provider. Like stubs,
+    // these never replace a module that is already known.
+    var externalModules: [String: any SwiftSymbolTableProtocol] = [:]
+    if let externalTypeProvider {
+      for externalModuleName in externalTypeProvider.moduleNames {
+        guard importedModules[externalModuleName] == nil else {
+          log?.info("Module '\(externalModuleName)' already known, skipping external type provider")
+          continue
+        }
+        externalModules[externalModuleName] = SwiftExternalModuleSymbolTable(
+          moduleName: externalModuleName,
+          provider: externalTypeProvider
+        )
+      }
+    }
+
     // FIXME: Support granular lookup context (file, type context).
 
     var builder = SwiftParsedModuleSymbolTableBuilder(
       moduleName: moduleName,
       importedModules: importedModules,
+      externalModules: externalModules,
       buildConfig: buildConfig,
       log: log,
     )
@@ -199,6 +229,7 @@ extension SwiftSymbolTable {
     return SwiftSymbolTable(
       parsedModule: parsedModule,
       importedModules: importedModules,
+      externalModules: externalModules,
       syntheticImportedModuleNames: sourceDependencies.syntheticModuleNames,
     )
   }
@@ -220,6 +251,12 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       }
     }
 
+    for externalModule in sortedExternalModules {
+      if let result = externalModule.lookupTopLevelNominalType(name) {
+        return result
+      }
+    }
+
     return nil
   }
 
@@ -228,7 +265,10 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
     if moduleName == self.moduleName {
       return parsedModule.lookupTopLevelNominalType(name)
     }
-    return importedModules[moduleName]?.lookupTopLevelNominalType(name)
+    if let importedModule = importedModules[moduleName] {
+      return importedModule.lookupTopLevelNominalType(name)
+    }
+    return externalModules[moduleName]?.lookupTopLevelNominalType(name)
   }
 
   /// Look for a top-level typealias with the given name.
@@ -239,6 +279,12 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
 
     for importedModule in prioritySortedImportedModules {
       if let result = importedModule.lookupTopLevelTypealias(name) {
+        return result
+      }
+    }
+
+    for externalModule in sortedExternalModules {
+      if let result = externalModule.lookupTopLevelTypealias(name) {
         return result
       }
     }
@@ -258,6 +304,10 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       }
     }
 
+    if let result = externalModules[parent.moduleName]?.lookupNestedType(name, parent: parent) {
+      return result
+    }
+
     return nil
   }
 
@@ -271,6 +321,10 @@ extension SwiftSymbolTable: SwiftSymbolTableProtocol {
       if let result = importedModule.lookupNestedTypealias(name, parent: parent) {
         return result
       }
+    }
+
+    if let result = externalModules[parent.moduleName]?.lookupNestedTypealias(name, parent: parent) {
+      return result
     }
 
     return nil

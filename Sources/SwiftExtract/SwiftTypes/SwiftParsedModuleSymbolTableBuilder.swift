@@ -24,6 +24,10 @@ public struct SwiftParsedModuleSymbolTableBuilder {
   /// Imported modules to resolve type syntax.
   public let importedModules: [String: SwiftModuleSymbolTable]
 
+  /// Modules described by consumer-supplied symbol tables, consulted after
+  /// `importedModules` to resolve type syntax.
+  public let externalModules: [String: any SwiftSymbolTableProtocol]
+
   /// The build configuration used to resolve #if conditional compilation blocks.
   public let buildConfig: any BuildConfiguration
 
@@ -43,6 +47,7 @@ public struct SwiftParsedModuleSymbolTableBuilder {
     requiredAvailablityOfModuleWithName: String? = nil,
     alternativeModules: SwiftModuleSymbolTable.AlternativeModuleNamesData? = nil,
     importedModules: [String: SwiftModuleSymbolTable],
+    externalModules: [String: any SwiftSymbolTableProtocol] = [:],
     buildConfig: any BuildConfiguration = .swiftExtractDefault,
     log: Logger? = nil
   ) {
@@ -53,6 +58,7 @@ public struct SwiftParsedModuleSymbolTableBuilder {
       alternativeModules: alternativeModules
     )
     self.importedModules = importedModules
+    self.externalModules = externalModules
     self.buildConfig = buildConfig
     self.unresolvedExtensions = []
   }
@@ -235,7 +241,8 @@ extension SwiftParsedModuleSymbolTableBuilder {
     // If it fails, we'll try again later.
     let table = SwiftSymbolTable(
       parsedModule: symbolTable,
-      importedModules: importedModules
+      importedModules: importedModules,
+      externalModules: externalModules
     )
     let lookupContext = SwiftTypeLookupContext(symbolTable: table)
     guard let extendedType = try? SwiftType(node.extendedType, lookupContext: lookupContext) else {

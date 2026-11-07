@@ -80,11 +80,17 @@ public final class SwiftAnalyzer {
   /// keeps the default log-and-drop behavior only.
   public let diagnosticsSink: (any SwiftExtractDiagnosticsSink)?
 
+  /// Describes the types of modules whose source isn't analyzed, so references
+  /// to them resolve. `nil` resolves only known, stubbed, and source-dependency
+  /// modules.
+  public let externalTypeProvider: (any SwiftExternalTypeProvider)?
+
   public init(
     config: any SwiftExtractConfiguration,
     moduleName: String? = nil,
     extractDecider: any ExtractDecider,
-    diagnosticsSink: (any SwiftExtractDiagnosticsSink)? = nil
+    diagnosticsSink: (any SwiftExtractDiagnosticsSink)? = nil,
+    externalTypeProvider: (any SwiftExternalTypeProvider)? = nil
   ) {
     guard let swiftModule = moduleName ?? config.swiftModule else {
       fatalError("Missing 'swiftModule' name.") // FIXME: can we make it required in config? but we shared config for many cases
@@ -94,6 +100,7 @@ public final class SwiftAnalyzer {
     self.swiftModuleName = swiftModule
     self.extractDecider = extractDecider
     self.diagnosticsSink = diagnosticsSink
+    self.externalTypeProvider = externalTypeProvider
 
     if let staticBuildConfigPath = config.staticBuildConfigurationFile {
       do {
@@ -284,6 +291,7 @@ extension SwiftAnalyzer {
     config: (any SwiftExtractConfiguration)? = nil,
     sourceDependencies: SourceDependencies = SourceDependencies(),
     diagnosticsSink: (any SwiftExtractDiagnosticsSink)? = nil,
+    externalTypeProvider: (any SwiftExternalTypeProvider)? = nil,
     beforeProcessingDeferredExtensions hook: (SwiftAnalyzer) throws -> Void = { _ in }
   ) throws -> AnalysisResult {
     let effectiveConfig = config ?? DefaultSwiftExtractConfiguration(swiftModule: moduleName)
@@ -291,7 +299,8 @@ extension SwiftAnalyzer {
       config: effectiveConfig,
       moduleName: moduleName,
       extractDecider: extractDecider,
-      diagnosticsSink: diagnosticsSink
+      diagnosticsSink: diagnosticsSink,
+      externalTypeProvider: externalTypeProvider
     )
     analyzer.sourceDependencies = sourceDependencies
     for source in sources {
@@ -316,6 +325,7 @@ extension SwiftAnalyzer {
       inputs,
       config: self.config,
       sourceDependencies: self.sourceDependencies,
+      externalTypeProvider: self.externalTypeProvider,
       buildConfig: self.buildConfig,
     )
     self.lookupContext = SwiftTypeLookupContext(symbolTable: symbolTable)
